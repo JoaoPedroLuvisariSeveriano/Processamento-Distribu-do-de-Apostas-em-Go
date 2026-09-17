@@ -3,6 +3,7 @@ package wallet_test
 import (
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/joaoluvisari/backend-challenge-go/internal/domain"
@@ -10,12 +11,11 @@ import (
 	"github.com/joaoluvisari/backend-challenge-go/internal/domain/wallet"
 )
 
-// novaCarteira e um helper que cria uma Wallet de teste com saldo inicial.
+// novaCarteira e um helper de teste que cria uma Wallet com saldo inicial.
 func novaCarteira(t *testing.T, saldoCentavos int64) *wallet.Wallet {
 	t.Helper()
-	playerID := uuid.New()
 	balance := money.New(saldoCentavos, "BRL")
-	w, err := wallet.NewWallet(playerID, "BRL", balance)
+	w, err := wallet.NewWallet(uuid.New(), "BRL", balance)
 	if err != nil {
 		t.Fatalf("NewWallet() erro inesperado: %v", err)
 	}
@@ -34,8 +34,6 @@ func TestNewWallet_Sucesso(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewWallet() erro inesperado: %v", err)
 	}
-
-	// Verificar estado inicial
 	if w.ID() == uuid.Nil {
 		t.Error("ID() nao deve ser nil")
 	}
@@ -55,17 +53,14 @@ func TestNewWallet_Sucesso(t *testing.T) {
 }
 
 func TestNewWallet_MoedaIncompativel(t *testing.T) {
-	playerID := uuid.New()
-	// Criar carteira BRL com saldo em USD — deve falhar
-	balance := money.New(10000, "USD")
-	_, err := wallet.NewWallet(playerID, "BRL", balance)
+	balance := money.New(10000, "USD") // saldo em USD
+	_, err := wallet.NewWallet(uuid.New(), "BRL", balance) // carteira BRL
 	if !errors.Is(err, domain.ErrWalletCurrencyMismatch) {
 		t.Errorf("NewWallet() deveria retornar ErrWalletCurrencyMismatch, got: %v", err)
 	}
 }
 
 func TestNewWallet_SaldoZero(t *testing.T) {
-	// Saldo zero e valido (nenhum OPENING sera criado, mas a carteira existe)
 	w, err := wallet.NewWallet(uuid.New(), "BRL", money.Zero("BRL"))
 	if err != nil {
 		t.Fatalf("NewWallet() com saldo zero nao deve falhar: %v", err)
@@ -83,27 +78,21 @@ func TestDebit_Sucesso(t *testing.T) {
 	w := novaCarteira(t, 10000) // R$100.00
 	txID := uuid.New()
 
-	entry, err := w.Debit(money.New(8000, "BRL"), txID) // Debitar R$80.00
+	entry, err := w.Debit(money.New(8000, "BRL"), txID)
 	if err != nil {
 		t.Fatalf("Debit() erro inesperado: %v", err)
 	}
-
-	// Saldo deve ser R$20.00 = 2000 centavos
 	if w.Balance().Amount() != 2000 {
 		t.Errorf("Balance() apos Debit = %d, quer 2000", w.Balance().Amount())
 	}
-
-	// Versao deve ser incrementada
 	if w.Version() != 2 {
 		t.Errorf("Version() apos Debit = %d, quer 2", w.Version())
 	}
-
-	// Verificar ledger entry
 	if entry.Direction() != wallet.DirectionDebit {
 		t.Errorf("Direction() = %v, quer DEBIT", entry.Direction())
 	}
 	if entry.Amount().Amount() != 8000 {
-		t.Errorf("Amount().Amount() = %d, quer 8000", entry.Amount().Amount())
+		t.Errorf("Amount() = %d, quer 8000", entry.Amount().Amount())
 	}
 	if entry.BalanceBefore().Amount() != 10000 {
 		t.Errorf("BalanceBefore() = %d, quer 10000", entry.BalanceBefore().Amount())
@@ -115,57 +104,48 @@ func TestDebit_Sucesso(t *testing.T) {
 
 func TestDebit_SaldoInsuficiente(t *testing.T) {
 	w := novaCarteira(t, 10000) // R$100.00
-	txID := uuid.New()
 
-	// Tentar debitar R$200.00 de uma carteira com R$100.00
-	_, err := w.Debit(money.New(20000, "BRL"), txID)
+	_, err := w.Debit(money.New(20000, "BRL"), uuid.New())
 	if !errors.Is(err, domain.ErrInsufficientBalance) {
-		t.Errorf("Debit() com saldo insuficiente deveria retornar ErrInsufficientBalance, got: %v", err)
+		t.Errorf("Debit() deveria retornar ErrInsufficientBalance, got: %v", err)
 	}
-
-	// Saldo NAO deve ser alterado apos erro
+	// Estado nao deve ser alterado apos erro
 	if w.Balance().Amount() != 10000 {
-		t.Errorf("Balance() apos Debit com erro = %d, quer 10000 (imutavel)", w.Balance().Amount())
+		t.Errorf("Balance() apos erro = %d, quer 10000 (imutavel)", w.Balance().Amount())
 	}
-	// Versao NAO deve ser incrementada apos erro
 	if w.Version() != 1 {
-		t.Errorf("Version() apos Debit com erro = %d, quer 1", w.Version())
+		t.Errorf("Version() apos erro = %d, quer 1", w.Version())
 	}
 }
 
-// TestDebit_CenarioCritico simula o cenario obrigatorio do desafio:
-// Uma carteira com R$100.00 recebe duas apostas de R$80.00.
-// Apenas uma deve ser aceita; a outra deve ser rejeitada por saldo insuficiente.
-// Este teste nao testa concorrencia (isso e feito nos testes de integracao),
-// mas garante que as invariantes de dominio estao corretas sequencialmente.
+// TestDebit_CenarioCritico simula o cenario obrigatorio da spec:
+// Carteira com R$100.00, duas apostas de R$80.00 sequenciais.
+// Resultado esperado: 1 aprovada, 1 rejeitada, saldo final R$20.00.
 func TestDebit_CenarioCritico_DuasApostas(t *testing.T) {
 	w := novaCarteira(t, 10000) // R$100.00
 
-	// Primeira aposta: R$80.00 — deve ser aprovada
+	// Primeira aposta R$80.00 — DEVE ser aprovada
 	_, err := w.Debit(money.New(8000, "BRL"), uuid.New())
 	if err != nil {
-		t.Fatalf("Primeira aposta de R$80.00 deveria ser aprovada: %v", err)
+		t.Fatalf("1a aposta (R$80.00) deveria ser aprovada: %v", err)
 	}
-	// Saldo: R$20.00
 	if w.Balance().Amount() != 2000 {
-		t.Errorf("Saldo apos 1a aposta = %d, quer 2000", w.Balance().Amount())
+		t.Errorf("Saldo apos 1a aposta = %d, quer 2000 (R$20.00)", w.Balance().Amount())
 	}
 
-	// Segunda aposta: R$80.00 — deve ser REJEITADA (saldo insuficiente)
+	// Segunda aposta R$80.00 — DEVE ser rejeitada (saldo insuficiente)
 	_, err = w.Debit(money.New(8000, "BRL"), uuid.New())
 	if !errors.Is(err, domain.ErrInsufficientBalance) {
-		t.Errorf("Segunda aposta deveria ser rejeitada por saldo insuficiente, got: %v", err)
+		t.Errorf("2a aposta deveria ser rejeitada com ErrInsufficientBalance, got: %v", err)
 	}
-	// Saldo permanece R$20.00
+	// Saldo permanece R$20.00 (1 unico debito no ledger)
 	if w.Balance().Amount() != 2000 {
-		t.Errorf("Saldo apos rejeicao = %d, quer 2000", w.Balance().Amount())
+		t.Errorf("Saldo apos rejeicao = %d, quer 2000 (R$20.00)", w.Balance().Amount())
 	}
 }
 
 func TestDebit_SaldoExato(t *testing.T) {
-	// Debitar exatamente o saldo disponivel deve funcionar (saldo = R$0.00)
 	w := novaCarteira(t, 10000) // R$100.00
-
 	_, err := w.Debit(money.New(10000, "BRL"), uuid.New())
 	if err != nil {
 		t.Fatalf("Debit() com saldo exato nao deve falhar: %v", err)
@@ -176,8 +156,7 @@ func TestDebit_SaldoExato(t *testing.T) {
 }
 
 func TestDebit_MoedaIncompativel(t *testing.T) {
-	w := novaCarteira(t, 10000) // carteira BRL
-
+	w := novaCarteira(t, 10000)
 	_, err := w.Debit(money.New(1000, "USD"), uuid.New())
 	if !errors.Is(err, domain.ErrWalletCurrencyMismatch) {
 		t.Errorf("Debit() com moeda errada deveria retornar ErrWalletCurrencyMismatch, got: %v", err)
@@ -190,13 +169,10 @@ func TestDebit_MoedaIncompativel(t *testing.T) {
 
 func TestCredit_Sucesso(t *testing.T) {
 	w := novaCarteira(t, 0) // R$0.00
-	txID := uuid.New()
-
-	entry, err := w.Credit(money.New(5000, "BRL"), txID) // Creditar R$50.00
+	entry, err := w.Credit(money.New(5000, "BRL"), uuid.New())
 	if err != nil {
 		t.Fatalf("Credit() erro inesperado: %v", err)
 	}
-
 	if w.Balance().Amount() != 5000 {
 		t.Errorf("Balance() apos Credit = %d, quer 5000", w.Balance().Amount())
 	}
@@ -206,6 +182,9 @@ func TestCredit_Sucesso(t *testing.T) {
 	if entry.Direction() != wallet.DirectionCredit {
 		t.Errorf("Direction() = %v, quer CREDIT", entry.Direction())
 	}
+	if entry.BalanceBefore().Amount() != 0 {
+		t.Errorf("BalanceBefore() = %d, quer 0", entry.BalanceBefore().Amount())
+	}
 	if entry.BalanceAfter().Amount() != 5000 {
 		t.Errorf("BalanceAfter() = %d, quer 5000", entry.BalanceAfter().Amount())
 	}
@@ -213,7 +192,6 @@ func TestCredit_Sucesso(t *testing.T) {
 
 func TestCredit_MoedaIncompativel(t *testing.T) {
 	w := novaCarteira(t, 0)
-
 	_, err := w.Credit(money.New(1000, "USD"), uuid.New())
 	if !errors.Is(err, domain.ErrWalletCurrencyMismatch) {
 		t.Errorf("Credit() com moeda errada deveria retornar ErrWalletCurrencyMismatch, got: %v", err)
@@ -227,13 +205,6 @@ func TestCredit_MoedaIncompativel(t *testing.T) {
 func TestRehydrateWallet(t *testing.T) {
 	id := uuid.New()
 	playerID := uuid.New()
-	import_time := "2024-01-01T00:00:00Z"
-	_ = import_time
-
-	import (
-		"time"
-	)
-
 	createdAt, _ := time.Parse(time.RFC3339, "2024-01-01T00:00:00Z")
 	updatedAt, _ := time.Parse(time.RFC3339, "2024-06-15T12:00:00Z")
 
@@ -242,11 +213,28 @@ func TestRehydrateWallet(t *testing.T) {
 	if w.ID() != id {
 		t.Errorf("ID() = %v, quer %v", w.ID(), id)
 	}
+	if w.PlayerID() != playerID {
+		t.Errorf("PlayerID() = %v, quer %v", w.PlayerID(), playerID)
+	}
 	if w.Balance().Amount() != 97500 {
 		t.Errorf("Balance().Amount() = %d, quer 97500", w.Balance().Amount())
 	}
 	if w.Version() != 5 {
 		t.Errorf("Version() = %d, quer 5", w.Version())
+	}
+	// Timestamps preservados exatamente
+	if !w.CreatedAt().Equal(createdAt) {
+		t.Errorf("CreatedAt() = %v, quer %v", w.CreatedAt(), createdAt)
+	}
+}
+
+// TestRehydrate_NaoDisparaEventos verifica que reidratacao nao incrementa versao.
+// Diferentemente de NewWallet, RehydrateWallet nao chama logica de negocio.
+func TestRehydrate_NaoIncrementaVersao(t *testing.T) {
+	createdAt := time.Now().UTC()
+	w := wallet.RehydrateWallet(uuid.New(), uuid.New(), "BRL", 5000, 7, createdAt, createdAt)
+	if w.Version() != 7 {
+		t.Errorf("RehydrateWallet nao deve alterar versao: got %d, quer 7", w.Version())
 	}
 }
 
@@ -255,40 +243,48 @@ func TestRehydrateWallet(t *testing.T) {
 // =============================================================================
 
 func TestLedgerEntry_InvarianteViolada(t *testing.T) {
-	// Criar um ledger entry com invariante violada deve falhar
-	walletID := uuid.New()
-	txID := uuid.New()
-
-	// Credit de R$10.00 com balanceBefore=R$100.00 e balanceAfter=R$200.00 (incorreto!)
-	// Correto seria: 10000 + 1000 = 11000
 	_, err := wallet.NewWalletLedgerEntry(
-		walletID, txID,
+		uuid.New(), uuid.New(),
 		wallet.DirectionCredit,
 		money.New(1000, "BRL"),  // amount: R$10.00
 		money.New(10000, "BRL"), // balanceBefore: R$100.00
-		money.New(20000, "BRL"), // balanceAfter: R$200.00 -- ERRADO!
+		money.New(20000, "BRL"), // balanceAfter: R$200.00 (ERRADO: deveria ser R$110.00)
 	)
 	if !errors.Is(err, domain.ErrInvalidLedgerEntry) {
-		t.Errorf("NewWalletLedgerEntry() com invariante violada deveria retornar ErrInvalidLedgerEntry, got: %v", err)
+		t.Errorf("LedgerEntry com invariante violada deveria retornar ErrInvalidLedgerEntry, got: %v", err)
 	}
 }
 
-func TestLedgerEntry_InvarianteCorreta(t *testing.T) {
-	walletID := uuid.New()
-	txID := uuid.New()
-
-	// Credit: R$100.00 + R$25.00 = R$125.00
+func TestLedgerEntry_CreditInvarianteCorreta(t *testing.T) {
+	// R$100.00 + R$25.00 = R$125.00
 	entry, err := wallet.NewWalletLedgerEntry(
-		walletID, txID,
+		uuid.New(), uuid.New(),
 		wallet.DirectionCredit,
-		money.New(2500, "BRL"),  // amount: R$25.00
-		money.New(10000, "BRL"), // balanceBefore: R$100.00
-		money.New(12500, "BRL"), // balanceAfter: R$125.00 -- CORRETO
+		money.New(2500, "BRL"),  // R$25.00
+		money.New(10000, "BRL"), // antes: R$100.00
+		money.New(12500, "BRL"), // depois: R$125.00
 	)
 	if err != nil {
-		t.Fatalf("NewWalletLedgerEntry() com invariante correta nao deve falhar: %v", err)
+		t.Fatalf("LedgerEntry correto nao deve falhar: %v", err)
 	}
 	if entry.ID() == uuid.Nil {
 		t.Error("ID() nao deve ser nil")
+	}
+}
+
+func TestLedgerEntry_DebitInvarianteCorreta(t *testing.T) {
+	// R$100.00 - R$80.00 = R$20.00
+	entry, err := wallet.NewWalletLedgerEntry(
+		uuid.New(), uuid.New(),
+		wallet.DirectionDebit,
+		money.New(8000, "BRL"),  // R$80.00
+		money.New(10000, "BRL"), // antes: R$100.00
+		money.New(2000, "BRL"),  // depois: R$20.00
+	)
+	if err != nil {
+		t.Fatalf("LedgerEntry de debito correto nao deve falhar: %v", err)
+	}
+	if entry.Direction() != wallet.DirectionDebit {
+		t.Errorf("Direction() = %v, quer DEBIT", entry.Direction())
 	}
 }
