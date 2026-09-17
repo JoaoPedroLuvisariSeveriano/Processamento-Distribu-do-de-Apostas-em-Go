@@ -1,4 +1,8 @@
-// Package main e o ponto de entrada da aplicacao.
+﻿import os
+
+# Corrigir o import do fxevent que estava errado no main.go
+f = open('cmd/server/main.go', 'w', encoding='utf-8')
+f.write("""// Package main e o ponto de entrada da aplicacao.
 //
 // Aqui inicializamos o Uber Fx, que e o nosso container de injecao de
 // dependencias. O Fx cuida de:
@@ -48,3 +52,6 @@ func main() {
 	// O Fx automaticamente registra handlers de sinal do SO.
 	app.Run()
 }
+""")
+f.close()
+print('cmd/server/main.go reescrito corretamente')
