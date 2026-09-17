@@ -1,0 +1,30 @@
+# Binarios e artefatos de build
+/bin/
+*.exe
+*.out
+
+# Variaveis de ambiente reais (nunca commitar)
+.env
+!.env.example
+
+# Dependencias Go (o go.sum deve ser commitado, mas vendor/ e opcional)
+vendor/
+
+# IDEs
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Temporarios de testes
+*.test
+/tmp/
+coverage.out
+coverage.html
+
+# Logs locais
+*.log
+
+# Scripts temporarios de geracao (do setup inicial)
+gen_*.py
+fix_*.py
