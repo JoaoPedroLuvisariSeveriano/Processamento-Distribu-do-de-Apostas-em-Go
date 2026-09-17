@@ -1,0 +1,97 @@
+version: "3.9"
+
+networks:
+  app-net:
+    driver: bridge
+
+volumes:
+  postgres_data:
+  keycloak_data:
+  localstack_data:
+
+services:
+
+  # PostgreSQL 16: banco principal.
+  # SKIP LOCKED e essencial para o outbox worker disputar registros
+  # sem bloquear outros workers da mesma outbox.
+  postgres:
+    image: postgres:16-alpine
+    container_name: betting_postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: betting_user
+      POSTGRES_PASSWORD: betting_password
+      POSTGRES_DB: betting_db
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - app-net
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U betting_user -d betting_db"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  # Keycloak 25: IdP OAuth2/OIDC. client_credentials flow.
+  # Realm importado automaticamente de scripts/keycloak-realm.json.
+  keycloak:
+    image: quay.io/keycloak/keycloak:25.0
+    container_name: betting_keycloak
+    restart: unless-stopped
+    environment:
+      KC_BOOTSTRAP_ADMIN_USERNAME: admin
+      KC_BOOTSTRAP_ADMIN_PASSWORD: admin
+      KC_DB: postgres
+      KC_DB_URL: jdbc:postgresql://postgres:5432/betting_db
+      KC_DB_USERNAME: betting_user
+      KC_DB_PASSWORD: betting_password
+      KC_DB_SCHEMA: keycloak
+      KC_HTTP_ENABLED: "true"
+      KC_HOSTNAME_STRICT: "false"
+      KC_HOSTNAME_STRICT_HTTPS: "false"
+    command: [start-dev, --import-realm]
+    volumes:
+      - ./scripts/keycloak-realm.json:/opt/keycloak/data/import/realm.json:ro
+      - keycloak_data:/opt/keycloak/data
+    ports:
+      - "8080:8080"
+    networks:
+      - app-net
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:8080/health/ready"]
+      interval: 30s
+      timeout: 10s
+      retries: 10
+      start_period: 60s
+
+  # LocalStack 3.7: AWS SQS emulado.
+  # Filas criadas via scripts/init-localstack.sh na inicializacao:
+  #   wager-transactions.fifo, wager-transactions-dlq.fifo, wager-events.fifo
+  localstack:
+    image: localstack/localstack:3.7
+    container_name: betting_localstack
+    restart: unless-stopped
+    environment:
+      SERVICES: sqs
+      DEFAULT_REGION: us-east-1
+      PERSISTENCE: 1
+      DISABLE_EVENTS: 1
+    ports:
+      - "4566:4566"
+    volumes:
+      - localstack_data:/var/lib/localstack
+      - ./scripts/init-localstack.sh:/etc/localstack/init/ready.d/init-sqs.sh:ro
+    networks:
+      - app-net
+    healthcheck:
+      test: ["CMD-SHELL", "awslocal sqs list-queues"]
+      interval: 15s
+      timeout: 10s
+      retries: 10
+      start_period: 20s
