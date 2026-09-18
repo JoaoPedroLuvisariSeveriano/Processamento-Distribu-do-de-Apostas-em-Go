@@ -112,6 +112,17 @@ type WagerTransactionRepository interface {
 	// FindPendingReferences busca transacoes PENDING_REFERENCE prontas para retry.
 	// next_retry_at <= NOW() e attempts < max_attempts.
 	FindPendingReferences(ctx context.Context, limit int) ([]*transaction.WagerTransaction, error)
+
+	// FindProcessedReversal verifica se ja existe uma reversao PROCESSADA para uma
+	// referencia especifica. Previne que a mesma operacao seja revertida duas vezes.
+	// kind deve ser REFUND ou ROLLBACK. Retorna nil, nil se nao encontrado.
+	FindProcessedReversal(ctx context.Context, providerID, referenceExternalID string, kind transaction.Kind) (*transaction.WagerTransaction, error)
+
+	// CreateWithinTx insere a transacao DENTRO de uma transacao SQL existente.
+	// Diferente de Create (que aceita pgx.Tx), este usa ON CONFLICT DO NOTHING
+	// e retorna (true, nil) se inserido ou (false, nil) em caso de conflito.
+	// Usado para claim atomico da idempotency_key com deteccao de race.
+	TryCreate(ctx context.Context, tx pgx.Tx, t *transaction.WagerTransaction) (inserted bool, err error)
 }
 
 // =============================================================================

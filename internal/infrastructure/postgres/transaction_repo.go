@@ -224,7 +224,93 @@ func (r *WagerTransactionRepository) FindPendingReferences(ctx context.Context, 
 	return result, rows.Err()
 }
 
-// =============================================================================
+// FindProcessedReversal verifica se ja existe uma reversao PROCESSADA para uma referencia.
+// Previne double-reversal: o mesmo externalID nao pode ter dois REFUND/ROLLBACK processados.
+func (r *WagerTransactionRepository) FindProcessedReversal(ctx context.Context, providerID, referenceExternalID string, kind transaction.Kind) (*transaction.WagerTransaction, error) {
+	const query = `
+		SELECT id, external_id, provider_id, idempotency_key, payload_hash,
+		       wallet_id, player_id, round_id, game_id,
+		       kind, amount_cents, currency,
+		       reference_external_id, reference_transaction_id,
+		       status, failure_code, attempts, next_retry_at,
+		       result_balance_cents, created_at, updated_at, processed_at
+		FROM wager_transactions
+		WHERE provider_id            = $1
+		  AND reference_external_id  = $2
+		  AND kind                   = $3
+		  AND status                 = 'PROCESSED'
+		LIMIT 1
+	`
+	row := r.pool.QueryRow(ctx, query, providerID, referenceExternalID, string(kind))
+	t, err := scanTransaction(row)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, nil // nenhuma reversao encontrada — permitido prosseguir
+		}
+		return nil, fmt.Errorf("FindProcessedReversal: %w", err)
+	}
+	return t, nil
+}
+
+// TryCreate insere uma WagerTransaction usando ON CONFLICT DO NOTHING.
+// Retorna (true, nil) se inserido com sucesso.
+// Retorna (false, nil) se conflito de idempotency_key — race condition detectada.
+// Este metodo e o mecanismo de claim atomico da idempotency_key dentro da transacao.
+func (r *WagerTransactionRepository) TryCreate(ctx context.Context, tx pgx.Tx, t *transaction.WagerTransaction) (bool, error) {
+	const query = `
+		INSERT INTO wager_transactions (
+			id, external_id, provider_id, idempotency_key, payload_hash,
+			wallet_id, player_id, round_id, game_id,
+			kind, amount_cents, currency,
+			reference_external_id, reference_transaction_id,
+			status, failure_code, attempts, next_retry_at,
+			result_balance_cents, created_at, updated_at, processed_at
+		) VALUES (
+			$1, $2, $3, $4, $5,
+			$6, $7, $8, $9,
+			$10, $11, $12,
+			$13, $14,
+			$15, $16, $17, $18,
+			$19, $20, $21, $22
+		)
+		ON CONFLICT (idempotency_key) DO NOTHING
+	`
+	var failureCode *string
+	if t.FailureCode() != nil {
+		s := t.FailureCode().String()
+		failureCode = &s
+	}
+
+	tag, err := tx.Exec(ctx, query,
+		t.ID(),
+		nullableString(t.ExternalID()),
+		nullableString(t.ProviderID()),
+		nullableString(t.IdempotencyKey()),
+		nullableString(t.PayloadHash()),
+		t.WalletID(),
+		t.PlayerID(),
+		nullableString(t.RoundID()),
+		nullableString(t.GameID()),
+		string(t.Kind()),
+		t.Amount().Amount(),
+		t.Amount().Currency(),
+		t.ReferenceExternalID(),
+		t.ReferenceTransactionID(),
+		string(t.Status()),
+		failureCode,
+		t.Attempts(),
+		t.NextRetryAt(),
+		t.ResultBalanceCents(),
+		t.CreatedAt(),
+		t.UpdatedAt(),
+		t.ProcessedAt(),
+	)
+	if err != nil {
+		return false, fmt.Errorf("TryCreate wager_transaction: %w", err)
+	}
+	return tag.RowsAffected() == 1, nil
+}
+
 // Helpers de scan e conversao
 // =============================================================================
 
