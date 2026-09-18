@@ -1,3 +1,6 @@
+﻿import os
+
+uow_go = """\
 package postgres
 
 import (
@@ -104,3 +107,9 @@ func IsDuplicateKeyError(err error) bool {
 func IsNoRowsError(err error) bool {
 	return errors.Is(err, pgx.ErrNoRows)
 }
+"""
+
+with open("internal/infrastructure/postgres/unit_of_work.go", "w", encoding="utf-8", newline="\n") as f:
+    f.write(uow_go)
+
+print("unit_of_work.go reescrito com pgconn.PgError correto")
