@@ -9,6 +9,8 @@ import (
 	"github.com/jackc/pgx/v5"
 	"go.uber.org/zap"
 
+	"github.com/joaoluvisari/backend-challenge-go/internal/domain/money"
+
 	"github.com/joaoluvisari/backend-challenge-go/internal/application/port"
 	"github.com/joaoluvisari/backend-challenge-go/internal/domain"
 	domainevent "github.com/joaoluvisari/backend-challenge-go/internal/domain/event"
@@ -165,7 +167,8 @@ func (uc *OpenWalletUseCase) doInsert(ctx context.Context, tx pgx.Tx, w *wallet.
 	// Criamos uma wallet temporaria com saldo ZERO para que o ledger entry
 	// tenha balanceBefore=0 e balanceAfter=initialBalance.
 	// A invariante (balanceAfter = balanceBefore + amount) e verificada no dominio.
-	zeroBalance := input.InitialBalance.ZeroCopy()
+	// money.Zero(currency) cria um Money com valor 0 para a moeda da carteira.
+	zeroBalance := money.Zero(w.Currency())
 	tmpWallet, _ := wallet.NewWallet(w.PlayerID(), w.Currency(), zeroBalance)
 	ledgerEntry, err := tmpWallet.Credit(input.InitialBalance, openingTx.ID())
 	if err != nil {
@@ -220,7 +223,7 @@ func (uc *OpenWalletUseCase) doInsert(ctx context.Context, tx pgx.Tx, w *wallet.
 			TransactionID: openingTx.ID(),
 			Direction:     string(wallet.DirectionCredit),
 			Money:         moneyToPayload(input.InitialBalance),
-			BalanceBefore: moneyToPayload(zeroBalance),
+			BalanceBefore: moneyToPayload(money.Zero(w.Currency())),
 			BalanceAfter:  moneyToPayload(w.Balance()),
 			WalletVersion: w.Version(),
 		},

@@ -12,7 +12,6 @@ import (
 
 	"github.com/joaoluvisari/backend-challenge-go/internal/domain"
 	"github.com/joaoluvisari/backend-challenge-go/internal/domain/transaction"
-	"github.com/joaoluvisari/backend-challenge-go/internal/domain/money"
 )
 
 // WagerTransactionRepository implementa port.WagerTransactionRepository.
@@ -479,6 +478,3 @@ func mustParseTime(v interface{}) time.Time {
 	}
 	return time.Time{}
 }
-
-// assegura que money package e importado via uso indireto
-var _ = money.Zero

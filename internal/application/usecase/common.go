@@ -1,7 +1,6 @@
 package usecase
 
 import (
-	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -172,7 +171,3 @@ func buildResultBalance(resultBalanceCents *int64, currency string) *money.Money
 	m := money.New(*resultBalanceCents, currency)
 	return &m
 }
-
-// contextWithTimeout e um helper nao exportado para criar contextos com timeout.
-// Centralizado aqui para consistencia entre os use cases.
-var _ = context.Background // garante que context e importado
