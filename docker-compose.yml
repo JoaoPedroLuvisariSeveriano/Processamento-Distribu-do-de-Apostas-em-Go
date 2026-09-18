@@ -48,7 +48,6 @@ services:
       KC_DB_URL: jdbc:postgresql://postgres:5432/betting_db
       KC_DB_USERNAME: betting_user
       KC_DB_PASSWORD: betting_password
-      KC_DB_SCHEMA: keycloak
       KC_HTTP_ENABLED: "true"
       KC_HOSTNAME_STRICT: "false"
       KC_HOSTNAME_STRICT_HTTPS: "false"
