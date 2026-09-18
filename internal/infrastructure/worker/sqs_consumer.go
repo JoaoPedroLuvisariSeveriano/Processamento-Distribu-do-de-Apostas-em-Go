@@ -2,10 +2,10 @@ package worker
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
-	"fmt"
-	"strings"
 	"sync"
 	"time"
 
@@ -137,7 +137,9 @@ func (c *SQSConsumer) processMessage(msg types.Message) {
 
 	messageID := *msg.MessageId
 	body := *msg.Body
-	hash := usecase.CalculatePayloadHash([]byte(body))
+	
+	hashBytes := sha256.Sum256([]byte(body))
+	hash := hex.EncodeToString(hashBytes[:])
 
 	inboxMsg := domaininbox.NewInboxMessage("wager_consumer", messageID, hash)
 
@@ -164,8 +166,6 @@ func (c *SQSConsumer) processMessage(msg types.Message) {
 	var req handler.ProcessWagerRequest
 	if err := json.Unmarshal([]byte(body), &req); err != nil {
 		c.log.Error("Invalid JSON payload", zap.Error(err), zap.String("messageId", messageID))
-		// Falha de negocio permanente -> deleta (ou manda pra DLQ). O combinando e apenas n deletar, 
-		// mas erro de parse crasso repetira p/ sempre. Deletar e mais seguro e avisa no log.
 		c.deleteMessage(msg)
 		return
 	}
@@ -191,7 +191,6 @@ func (c *SQSConsumer) processMessage(msg types.Message) {
 		return
 	}
 
-	// Fake Provider ID for SQS. In production, this might come from message attributes
 	providerID := "sqs_provider"
 
 	input := usecase.ProcessWagerInput{
@@ -212,18 +211,15 @@ func (c *SQSConsumer) processMessage(msg types.Message) {
 	_, err = c.uc.Execute(c.ctx, input)
 	if err != nil {
 		if errors.Is(err, usecase.ErrIdempotencyConflict) || errors.Is(err, usecase.ErrInvalidOpeningKind) || errors.Is(err, usecase.ErrWalletOwnerMismatch) {
-			// Erros permanentes de negocio -> deleta para nao travar a fila
 			c.log.Warn("Business error processing message, discarding", zap.Error(err), zap.String("messageId", messageID))
 			c.deleteMessage(msg)
 			return
 		}
 		
-		// Erro temporario (timeout, etc) -> nao deleta, SQS vai refazer
 		c.log.Error("Temporary error processing message, leaving in queue", zap.Error(err), zap.String("messageId", messageID))
 		return
 	}
 
-	// Sucesso
 	c.deleteMessage(msg)
 }
 

@@ -5,6 +5,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/google/uuid"
 	"go.uber.org/fx"
 	"go.uber.org/zap"
 
@@ -108,17 +109,17 @@ func (w *PendingReferencesWorker) processPending() {
 				w.log.Info("Pending reference resolved successfully", zap.String("id", t.ExternalTransactionID))
 			}
 		}(&usecase.ProcessWagerInput{ // Mockando t apenas para evitar loop capturing issues, a variavel correta e tx.
-			ExternalTransactionID: tx.ExternalTransactionID(),
+			ExternalTransactionID: tx.ExternalID(),
 			ProviderID:            tx.ProviderID(),
 			IdempotencyKey:        tx.IdempotencyKey(),
-			PlayerID:              tx.WalletID(), // WalletID and PlayerID are separate in Domain
+			PlayerID:              tx.PlayerID(),
 			WalletID:              tx.WalletID(),
 			RoundID:               tx.RoundID(),
 			GameID:                tx.GameID(),
 			Kind:                  tx.Kind(),
 			Amount:                tx.Amount(),
 			ReferenceExternalID:   tx.ReferenceExternalID(),
-			CorrelationID:         tx.CorrelationID(),
+			CorrelationID:         uuid.New(),
 		})
 	}
 }
