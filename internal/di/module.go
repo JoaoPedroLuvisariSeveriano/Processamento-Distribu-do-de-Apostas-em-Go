@@ -13,6 +13,7 @@ import (
 	"github.com/joaoluvisari/backend-challenge-go/internal/application/usecase"
 	"github.com/joaoluvisari/backend-challenge-go/internal/infrastructure/config"
 	"github.com/joaoluvisari/backend-challenge-go/internal/infrastructure/postgres"
+	"github.com/joaoluvisari/backend-challenge-go/internal/infrastructure/worker"
 	myhttp "github.com/joaoluvisari/backend-challenge-go/internal/presentation/http"
 	"github.com/joaoluvisari/backend-challenge-go/internal/presentation/http/handler"
 	auth "github.com/joaoluvisari/backend-challenge-go/internal/presentation/http/middleware"
@@ -131,4 +132,7 @@ var Module = fx.Options(
 	// 6. Invoke para iniciar servicos de background/servidores
 	// fx.Invoke forca a construcao dos modulos e executa os ciclos de vida OnStart
 	fx.Invoke(StartHTTPServer),
+
+	// 7. Workers background
+	worker.Module,
 )
