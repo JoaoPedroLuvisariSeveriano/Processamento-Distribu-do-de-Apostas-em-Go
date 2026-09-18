@@ -1,3 +1,6 @@
+﻿import os
+
+open_wallet_go = """\
 package usecase
 
 import (
@@ -235,3 +238,9 @@ func (uc *OpenWalletUseCase) doInsert(ctx context.Context, tx pgx.Tx, w *wallet.
 
 	return nil
 }
+"""
+
+with open("internal/application/usecase/open_wallet.go", "w", encoding="utf-8", newline="\n") as f:
+    f.write(open_wallet_go)
+
+print("open_wallet.go reescrito corretamente")
