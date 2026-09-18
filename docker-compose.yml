@@ -95,3 +95,32 @@ services:
       timeout: 10s
       retries: 10
       start_period: 20s
+
+  # Servico principal (Go)
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: betting_api
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      HTTP_PORT: 3000
+      DATABASE_URL: postgres://betting_user:betting_password@postgres:5432/betting_db?sslmode=disable
+      OIDC_PROVIDER_URL: http://keycloak:8080/realms/jungle
+      OIDC_CLIENT_ID: backend-challenge
+      AWS_REGION: us-east-1
+      AWS_ENDPOINT_URL: http://localstack:4566
+      SQS_WAGER_TRANSACTIONS_URL: http://localstack:4566/000000000000/wager-transactions.fifo
+      SQS_WAGER_EVENTS_URL: http://localstack:4566/000000000000/wager-events.fifo
+      SQS_DLQ_URL: http://localstack:4566/000000000000/wager-transactions-dlq.fifo
+    networks:
+      - app-net
+    depends_on:
+      postgres:
+        condition: service_healthy
+      keycloak:
+        condition: service_healthy
+      localstack:
+        condition: service_healthy

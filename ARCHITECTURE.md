@@ -1,52 +1,34 @@
-# ARCHITECTURE.md - Decisoes Tecnicas
+# Arquitetura do Serviço de Processamento de Apostas
 
-## 1. Money (Dinheiro)
+Este documento detalha as decisões arquiteturais fundamentais adotadas no serviço de processamento de apostas (Wagering API), desenhado para suportar alta concorrência e garantir integridade financeira absoluta.
 
-Representacao interna: int64 em centavos.
-float32/float64 sao proibidos (erros de precisao IEEE 754).
-Parsing via shopspring/decimal apenas no boundary (entrada/saida).
-Persistencia: coluna BIGINT (centavos) + CHAR(3) (moeda ISO 4217).
+## 1. Precisão Monetária (Int64 / Decimal)
 
-## 2. Controle de Concorrencia
+**Decisão:** Proibição do uso de tipos de ponto flutuante (`float32`/`float64`) para representação de valores monetários.
 
-Lock pessimista com SELECT ... FOR UPDATE por carteira.
-Bloqueia apenas a linha especifica; carteiras distintas rodam em paralelo.
-Lost updates prevenidos por FOR UPDATE + CHECK CONSTRAINT balance >= 0.
+**Justificativa:** Ponto flutuante sofre de imprecisão na representação binária (ex: `0.1 + 0.2 = 0.30000000000000004`). Em sistemas financeiros, isso causa perda de centavos que, em escala, resultam em rombos financeiros inauditáveis. 
+No domínio, modelamos o `Money` como um **Value Object**, utilizando a biblioteca `shopspring/decimal` (ou representação em centavos via `int64` puro). Isso garante que toda operação de soma, subtração e validação (como a de saldo suficiente) seja matematicamente exata e segura contra arredondamentos indesejados.
 
-## 3. Idempotencia
+## 2. Lock Pessimista no PostgreSQL
 
-Persistente via idempotency_key UNIQUE em wager_transactions.
-Hash SHA-256 sobre JSON canonico dos campos de negocio.
-Replay com hash identico: retorna resultado persistido.
-Replay com hash diferente: retorna 409 Conflict.
+**Decisão:** Uso da cláusula `SELECT ... FOR UPDATE` ao buscar a carteira (`Wallet`) durante o processamento de apostas.
 
-## 4. Ledger
+**Justificativa:** Alta concorrência significa que um mesmo jogador pode tentar realizar apostas simultâneas em milissegundos. Se usássemos uma abordagem ingênua ou puramente otimista (sem controle de versão forte no banco de dados), correríamos o risco do *Lost Update*: duas requisições leem saldo `100`, debitam `50`, e ambas atualizam para `50` (o saldo final deveria ser `0`).
+Ao aplicar o **Lock Pessimista**, a primeira transação que inicia o `FindByIDWithLock` "trava" a linha da carteira no PostgreSQL. A segunda transação é forçada a aguardar até que a primeira faça o *Commit* ou *Rollback*. Isso serializa operações na mesma carteira, garantindo integridade de saldo (a invariante `balance >= 0` é preservada a nível de banco) sem bloquear operações de outros jogadores.
 
-Append-only sem UPDATE ou DELETE.
-LOSS nao gera ledger (sem movimentacao de saldo).
-Constraint UNIQUE (wallet_id, transaction_id) previne duplicatas.
+## 3. Padrão Transactional Outbox
 
-## 5. Transactional Outbox e Inbox
+**Decisão:** Criação de uma tabela `outbox_events` e atualização na mesma transação atômica das operações financeiras.
 
-Outbox: eventos inseridos na mesma transacao SQL que altera saldo.
-Worker usa SELECT FOR UPDATE SKIP LOCKED para multiplos publishers.
-Inbox: inbox_messages com UNIQUE (consumer_name, message_id).
-Inbox inserido na mesma transacao SQL das alteracoes de dominio.
+**Justificativa:** Precisamos notificar sistemas externos (via SQS) que uma aposta foi processada (para fins de analytics, gamificação, etc). Uma abordagem ingênua seria "atualizar o banco e depois enviar para o SQS", mas se o envio falhar (ou o pod morrer no meio do processo), o sistema entra em um estado inconsistente (Dual Write problem).
+Com o **Transactional Outbox**, persistimos o evento na tabela `outbox_events` *junto* com o saldo e a transação de aposta (`WagerTransaction`). Sendo atômico: ou salva tudo ou não salva nada.
+Um **Worker em Background** varre a tabela em batches utilizando `SELECT FOR UPDATE SKIP LOCKED` (para paralelismo horizontal seguro), envia as mensagens para o SQS e só as marca como concluídas caso a AWS responda com sucesso.
 
-## 6. Autenticacao
+## 4. Injeção de Dependências com Uber Fx
 
-Keycloak com client_credentials (OAuth 2.0).
-JWT validado via JWKS publico do Keycloak (go-oidc/v3).
-clientId do token determina o providerId autorizado.
+**Decisão:** Uso do framework **Uber Fx** para orquestrar dependências e ciclos de vida.
 
-## 7. Uber Fx
-
-Cada camada e um fx.Module independente.
-Dominio nao importa Fx, HTTP, SQS ou pgx.
-Lifecycle.OnStart/OnStop gerencia shutdown graceful.
-
-## 8. Limitacoes
-
-Apenas BRL nos cenarios principais (tipo Money carrega moeda).
-Rollback parcial nao implementado (fora do escopo do desafio).
-Partidas dobradas (double-entry) nao implementadas.
+**Justificativa:** À medida que o projeto escalou para DDD (Domain-Driven Design), dividindo-se entre `infrastructure`, `application` (ports/usecases) e `presentation`, o grafo de dependências se tornou complexo.
+O Uber Fx resolve isso de forma elegante:
+- **Modularidade:** `fx.Provide` injeta as abstrações do banco e middlewares nos Handlers e Casos de Uso.
+- **Graceful Shutdown:** Através do `fx.Lifecycle`, pudemos gerenciar o encerramento da aplicação limpamente. Hooks `OnStop` dão tempo para o servidor HTTP (`chi`) drenar requests ativos e para os workers (SQS Consumer, Outbox Publisher) finalizarem suas goroutines antes que a conexão primária com o Postgres seja destruída.
