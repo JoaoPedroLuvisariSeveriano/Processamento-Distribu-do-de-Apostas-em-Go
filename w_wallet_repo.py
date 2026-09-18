@@ -1,3 +1,6 @@
+﻿import os
+
+wallet_repo_go = """\
 package postgres
 
 import (
@@ -215,3 +218,9 @@ func scanWalletRow(row pgx.Row) (*wallet.Wallet, error) {
 		r.updatedAt,
 	), nil
 }
+"""
+
+with open("internal/infrastructure/postgres/wallet_repo.go", "w", encoding="utf-8", newline="\n") as f:
+    f.write(wallet_repo_go)
+
+print("wallet_repo.go reescrito corretamente")
