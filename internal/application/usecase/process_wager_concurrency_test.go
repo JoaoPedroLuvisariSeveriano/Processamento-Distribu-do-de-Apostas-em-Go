@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"os"
 
 	"github.com/joaoluvisari/backend-challenge-go/internal/application/usecase"
 	"github.com/joaoluvisari/backend-challenge-go/internal/domain/money"
@@ -24,6 +25,13 @@ import (
 func TestProcessWagerUseCase_Concurrency(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping concurrency integration test in short mode")
+	}
+
+	if os.Getenv("DATABASE_URL") == "" {
+		os.Setenv("DATABASE_URL", "postgres://postgres:123@localhost:5432/betting_db?sslmode=disable")
+	}
+	if os.Getenv("OIDC_ISSUER_URL") == "" {
+		os.Setenv("OIDC_ISSUER_URL", "http://localhost:8080/realms/betting-realm")
 	}
 
 	cfg, err := config.Load()
