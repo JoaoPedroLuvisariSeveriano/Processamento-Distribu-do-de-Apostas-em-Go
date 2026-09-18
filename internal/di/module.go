@@ -23,15 +23,15 @@ import (
 func OIDCProvider(cfg *config.Config, log *zap.Logger) (*auth.OIDCMiddleware, error) {
 	// Fallbacks para URL e ClientID caso a struct de config nao tenha metodos diretos,
 	// adaptamos conforme a estrutura.
-	providerURL := cfg.OIDC.ProviderURL
-	if providerURL == "" {
-		providerURL = "http://localhost:8080/realms/jungle"
+	issuerURL := cfg.OIDC.IssuerURL
+	if issuerURL == "" {
+		issuerURL = "http://localhost:8080/realms/jungle"
 	}
 	clientID := cfg.OIDC.ClientID
 	if clientID == "" {
 		clientID = "backend-challenge"
 	}
-	return auth.NewOIDCMiddleware(providerURL, clientID, log)
+	return auth.NewOIDCMiddleware(issuerURL, clientID, log)
 }
 
 // StartHTTPServer gerencia o ciclo de vida do servidor HTTP integrado ao Uber Fx.
