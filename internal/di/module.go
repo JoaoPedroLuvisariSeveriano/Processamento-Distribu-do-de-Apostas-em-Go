@@ -1,41 +1,87 @@
 package di
 
 import (
-	"os"
+	"context"
+	"net/http"
+	"time"
 
+	"github.com/go-chi/chi/v5"
 	"go.uber.org/fx"
 	"go.uber.org/zap"
 
 	"github.com/joaoluvisari/backend-challenge-go/internal/application/port"
 	"github.com/joaoluvisari/backend-challenge-go/internal/application/usecase"
+	"github.com/joaoluvisari/backend-challenge-go/internal/infrastructure/config"
 	"github.com/joaoluvisari/backend-challenge-go/internal/infrastructure/postgres"
-	"github.com/joaoluvisari/backend-challenge-go/internal/presentation/http"
+	myhttp "github.com/joaoluvisari/backend-challenge-go/internal/presentation/http"
 	"github.com/joaoluvisari/backend-challenge-go/internal/presentation/http/handler"
 	auth "github.com/joaoluvisari/backend-challenge-go/internal/presentation/http/middleware"
 )
 
-// OIDCProvider cria o middleware de autenticao lendo variveis de ambiente.
-func OIDCProvider(log *zap.Logger) (*auth.OIDCMiddleware, error) {
-	providerURL := os.Getenv("OIDC_PROVIDER_URL")
+// OIDCProvider cria o middleware de autenticacao usando as configuracoes globais.
+func OIDCProvider(cfg *config.Config, log *zap.Logger) (*auth.OIDCMiddleware, error) {
+	// Fallbacks para URL e ClientID caso a struct de config nao tenha metodos diretos,
+	// adaptamos conforme a estrutura.
+	providerURL := cfg.OIDC.ProviderURL
 	if providerURL == "" {
-		providerURL = "http://localhost:8080/realms/jungle" // default
+		providerURL = "http://localhost:8080/realms/jungle"
 	}
-	clientID := os.Getenv("OIDC_CLIENT_ID")
+	clientID := cfg.OIDC.ClientID
 	if clientID == "" {
-		clientID = "backend-challenge" // default
+		clientID = "backend-challenge"
 	}
 	return auth.NewOIDCMiddleware(providerURL, clientID, log)
 }
 
-// Module rene todas as dependncias da aplicao
-var Module = fx.Options(
-	// 1. Logger
-	fx.Provide(zap.NewProduction),
+// StartHTTPServer gerencia o ciclo de vida do servidor HTTP integrado ao Uber Fx.
+func StartHTTPServer(lc fx.Lifecycle, router *chi.Mux, cfg *config.Config, log *zap.Logger) {
+	portStr := cfg.HTTP.Port
+	if portStr == "" {
+		portStr = "3000"
+	}
 
-	// 2. Infraestrutura (Banco de Dados)
-	// Aqui assumimos que postgres.NewPool j existe e l a config/env.
-	// Por simplicidade, vamos usar os construtores dos repositrios.
+	server := &http.Server{
+		Addr:    ":" + portStr,
+		Handler: router,
+	}
+
+	// fx.Lifecycle orquestra start/stop da aplicacao (graceful shutdown)
+	lc.Append(fx.Hook{
+		// OnStart sobe o servidor HTTP em background (goroutine) para nao bloquear
+		OnStart: func(ctx context.Context) error {
+			log.Info("Starting HTTP server", zap.String("port", server.Addr))
+			go func() {
+				if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+					log.Fatal("HTTP server failed", zap.Error(err))
+				}
+			}()
+			return nil
+		},
+		// OnStop executa o graceful shutdown limitando o tempo para as requests ativas terminarem
+		OnStop: func(ctx context.Context) error {
+			log.Info("Shutting down HTTP server")
+			
+			// 5 segundos de timeout para requests pendentes finalizarem
+			shutdownCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+			defer cancel()
+			
+			return server.Shutdown(shutdownCtx)
+		},
+	})
+}
+
+// Module reune todas as dependencias da aplicacao.
+var Module = fx.Options(
+	// 1. Core (Config & Logger)
 	fx.Provide(
+		config.Load,
+		zap.NewProduction,
+	),
+
+	// 2. Infraestrutura (Banco de Dados e Connection Pool)
+	// postgres.NewPool depende de fx.Lifecycle, *config.Config e *zap.Logger
+	fx.Provide(
+		postgres.NewPool,
 		postgres.NewWalletRepository,
 		postgres.NewWagerTransactionRepository,
 		postgres.NewLedgerRepository,
@@ -44,8 +90,7 @@ var Module = fx.Options(
 		postgres.RunInTx,
 	),
 
-	// 3. Mapeamento de interfaces para os Use Cases
-	// fx.Provide injeta as interfaces concretas onde so esperadas interfaces (ports).
+	// 3. Mapeamento de interfaces concretas para os ports dos Use Cases
 	fx.Provide(
 		fx.Annotate(
 			postgres.NewWalletRepository,
@@ -75,11 +120,15 @@ var Module = fx.Options(
 		usecase.NewProcessWagerUseCase,
 	),
 
-	// 5. Apresentao (HTTP)
+	// 5. Apresentacao (HTTP) e Middlewares
 	fx.Provide(
 		OIDCProvider,
 		handler.NewWalletHandler,
 		handler.NewWagerHandler,
-		http.NewRouter,
+		myhttp.NewRouter,
 	),
+
+	// 6. Invoke para iniciar servicos de background/servidores
+	// fx.Invoke forca a construcao dos modulos e executa os ciclos de vida OnStart
+	fx.Invoke(StartHTTPServer),
 )

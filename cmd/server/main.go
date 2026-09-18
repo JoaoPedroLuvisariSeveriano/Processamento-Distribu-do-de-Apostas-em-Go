@@ -11,12 +11,21 @@
 package main
 
 import (
+	"log"
+
+	"github.com/joho/godotenv"
 	"go.uber.org/fx"
 	"go.uber.org/fx/fxevent"
 	"go.uber.org/zap"
+
+	"github.com/joaoluvisari/backend-challenge-go/internal/di"
 )
 
 func main() {
+	if err := godotenv.Load(); err != nil {
+		log.Println("No .env file found, relying on system environment variables")
+	}
+
 	// fx.New constroi o grafo de dependencias declarado nos modulos.
 	//
 	// Ordem de execucao do Fx:
@@ -26,18 +35,9 @@ func main() {
 	//   4. Aguarda sinal de shutdown (SIGTERM / SIGINT)
 	//   5. Execucao dos hooks OnStop em ordem REVERSA (graceful shutdown)
 	app := fx.New(
-		// TODO (Passos futuros): adicionar modulos conforme implementacao avanca.
-		// Cada modulo sera adicionado aqui na ordem correta de dependencia:
-		//
-		// fx.Module("config",  config.Module),      -- carrega .env e valida vars
-		// fx.Module("infra",   infra.Module),        -- db pool, sqs client, logger
-		// fx.Module("domain",  domain.Module),       -- repositorios
-		// fx.Module("app",     application.Module),  -- casos de uso
-		// fx.Module("http",    httpserver.Module),   -- chi router + handlers
-		// fx.Module("worker",  worker.Module),       -- sqs consumer + outbox worker
+		di.Module,
 
 		// Configurar logger do Fx para usar zap estruturado (JSON).
-		// Em producao, zap.NewProduction() emite logs JSON.
 		fx.WithLogger(func() fxevent.Logger {
 			logger, _ := zap.NewDevelopment()
 			return &fxevent.ZapLogger{Logger: logger}
