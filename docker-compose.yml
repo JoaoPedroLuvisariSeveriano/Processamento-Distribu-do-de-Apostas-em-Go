@@ -106,7 +106,7 @@ services:
       - "3000:3000"
     environment:
       HTTP_PORT: 3000
-      DATABASE_URL: postgres://postgres:123@postgres:5432/betting_db?sslmode=disable
+      DATABASE_URL: postgres://postgres:123@betting_postgres:5432/betting_db?sslmode=disable
       OIDC_ISSUER_URL: http://keycloak:8080/realms/jungle
       OIDC_CLIENT_ID: backend-challenge
       AWS_REGION: us-east-1
