@@ -25,7 +25,7 @@ func OIDCProvider(cfg *config.Config, log *zap.Logger) (*auth.OIDCMiddleware, er
 	// adaptamos conforme a estrutura.
 	issuerURL := cfg.OIDC.IssuerURL
 	if issuerURL == "" {
-		issuerURL = "http://localhost:8080/realms/jungle"
+		issuerURL = "http://localhost:8080/realms/betting-realm"
 	}
 	clientID := cfg.OIDC.ClientID
 	if clientID == "" {
