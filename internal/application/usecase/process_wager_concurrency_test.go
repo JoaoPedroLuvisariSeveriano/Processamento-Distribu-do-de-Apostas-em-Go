@@ -8,14 +8,13 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/joaoluvisari/backend-challenge-go/internal/application/usecase"
 	"github.com/joaoluvisari/backend-challenge-go/internal/domain/money"
 	"github.com/joaoluvisari/backend-challenge-go/internal/domain/transaction"
 	"github.com/joaoluvisari/backend-challenge-go/internal/infrastructure/config"
 	"github.com/joaoluvisari/backend-challenge-go/internal/infrastructure/postgres"
-	"go.uber.org/fx"
+	"go.uber.org/fx/fxtest"
 	"go.uber.org/zap"
 )
 
@@ -33,7 +32,7 @@ func TestProcessWagerUseCase_Concurrency(t *testing.T) {
 	}
 
 	log, _ := zap.NewDevelopment()
-	lc := fx.NewLifecycle(log)
+	lc := fxtest.NewLifecycle(t)
 
 	pool, err := postgres.NewPool(lc, cfg, log)
 	if err != nil {
@@ -53,12 +52,12 @@ func TestProcessWagerUseCase_Concurrency(t *testing.T) {
 	outboxRepo := postgres.NewOutboxRepository(pool)
 	runInTx := postgres.RunInTx(pool)
 
-	openWalletUC := usecase.NewOpenWalletUseCase(walletRepo, outboxRepo, runInTx, log)
+	openWalletUC := usecase.NewOpenWalletUseCase(walletRepo, txRepo, ledgerRepo, outboxRepo, runInTx, log)
 	processWagerUC := usecase.NewProcessWagerUseCase(walletRepo, txRepo, ledgerRepo, outboxRepo, runInTx, log)
 
 	// 1. Criar uma carteira com saldo inicial de 50000 (ex: $500.00)
 	playerID := uuid.New()
-	initialBalance, _ := money.New(50000, "BRL")
+	initialBalance := money.New(50000, "BRL")
 	openOut, err := openWalletUC.Execute(ctx, usecase.OpenWalletInput{
 		PlayerID:       playerID,
 		Currency:       "BRL",
@@ -80,7 +79,7 @@ func TestProcessWagerUseCase_Concurrency(t *testing.T) {
 	errorCount := 0
 	var mu sync.Mutex
 
-	betAmount, _ := money.New(1000, "BRL")
+	betAmount := money.New(1000, "BRL")
 
 	for i := 0; i < numRequests; i++ {
 		go func(idx int) {
@@ -122,10 +121,11 @@ func TestProcessWagerUseCase_Concurrency(t *testing.T) {
 		t.Fatalf("Failed to fetch final wallet: %v", err)
 	}
 
-	expectedBalance, _ := money.New(0, "BRL")
+	expectedBalance := money.New(0, "BRL")
 
-	if !finalWallet.Balance().Equals(expectedBalance) {
-		t.Errorf("Expected balance %s, got %s", expectedBalance, finalWallet.Balance())
+	ok, err := finalWallet.Balance().Equal(expectedBalance)
+	if err != nil || !ok {
+		t.Errorf("Expected balance %s, got %s (err: %v)", expectedBalance, finalWallet.Balance(), err)
 	}
 
 	if successCount != numRequests {
