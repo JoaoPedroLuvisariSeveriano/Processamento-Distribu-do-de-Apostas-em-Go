@@ -9,7 +9,6 @@ import (
 	"go.uber.org/zap"
 
 	"github.com/joaoluvisari/backend-challenge-go/internal/application/usecase"
-	"github.com/joaoluvisari/backend-challenge-go/internal/domain"
 	"github.com/joaoluvisari/backend-challenge-go/internal/domain/money"
 	"github.com/joaoluvisari/backend-challenge-go/internal/domain/transaction"
 	"github.com/joaoluvisari/backend-challenge-go/internal/presentation/http/middleware"
