@@ -160,6 +160,20 @@ func (h *WagerHandler) HandleGetTransaction(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
+	authProviderID, err := middleware.GetProviderID(r.Context())
+	if err != nil {
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+	// Se a transacao existir mas for de outro provider, retorna Not Found
+	// para nao vazar a existencia da transacao para o chamador.
+	// Ignoramos a checagem se quem esta chamando for o internal-service.
+	if authProviderID != "internal-service" && t.ProviderID() != authProviderID {
+		http.Error(w, "Transaction not found", http.StatusNotFound)
+		return
+	}
+
+
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 	json.NewEncoder(w).Encode(map[string]interface{}{

@@ -11,6 +11,7 @@ import (
 	"github.com/joaoluvisari/backend-challenge-go/internal/application/usecase"
 	"github.com/joaoluvisari/backend-challenge-go/internal/domain"
 	"github.com/joaoluvisari/backend-challenge-go/internal/domain/money"
+	"github.com/joaoluvisari/backend-challenge-go/internal/presentation/http/middleware"
 )
 
 type WalletHandler struct {
@@ -49,8 +50,16 @@ type OpenWalletResponse struct {
 }
 
 func (h *WalletHandler) HandleOpenWallet(w http.ResponseWriter, r *http.Request) {
+	// Apenas servicos internos podem abrir carteiras
+	authProviderID, err := middleware.GetProviderID(r.Context())
+	if err != nil || authProviderID != "internal-service" {
+		http.Error(w, "Forbidden: only internal-service can manage wallets", http.StatusForbidden)
+		return
+	}
+
 	var req OpenWalletRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		h.log.Error("Failed to decode request", zap.Error(err))
 		http.Error(w, "Invalid JSON payload", http.StatusBadRequest)
 		return
 	}
@@ -107,6 +116,13 @@ func (h *WalletHandler) HandleOpenWallet(w http.ResponseWriter, r *http.Request)
 }
 
 func (h *WalletHandler) HandleReconcileWallet(w http.ResponseWriter, r *http.Request) {
+	// Apenas servicos internos
+	authProviderID, err := middleware.GetProviderID(r.Context())
+	if err != nil || authProviderID != "internal-service" {
+		http.Error(w, "Forbidden: only internal-service can manage wallets", http.StatusForbidden)
+		return
+	}
+
 	walletIDStr := chi.URLParam(r, "walletId")
 	walletID, err := uuid.Parse(walletIDStr)
 	if err != nil {
@@ -134,6 +150,13 @@ func (h *WalletHandler) HandleReconcileWallet(w http.ResponseWriter, r *http.Req
 }
 
 func (h *WalletHandler) HandleGetWallet(w http.ResponseWriter, r *http.Request) {
+	// Apenas servicos internos
+	authProviderID, err := middleware.GetProviderID(r.Context())
+	if err != nil || authProviderID != "internal-service" {
+		http.Error(w, "Forbidden: only internal-service can manage wallets", http.StatusForbidden)
+		return
+	}
+
 	walletIDStr := chi.URLParam(r, "walletId")
 	walletID, err := uuid.Parse(walletIDStr)
 	if err != nil {
@@ -158,6 +181,13 @@ func (h *WalletHandler) HandleGetWallet(w http.ResponseWriter, r *http.Request) 
 }
 
 func (h *WalletHandler) HandleGetWalletLedger(w http.ResponseWriter, r *http.Request) {
+	// Apenas servicos internos
+	authProviderID, err := middleware.GetProviderID(r.Context())
+	if err != nil || authProviderID != "internal-service" {
+		http.Error(w, "Forbidden: only internal-service can manage wallets", http.StatusForbidden)
+		return
+	}
+
 	walletIDStr := chi.URLParam(r, "walletId")
 	walletID, err := uuid.Parse(walletIDStr)
 	if err != nil {

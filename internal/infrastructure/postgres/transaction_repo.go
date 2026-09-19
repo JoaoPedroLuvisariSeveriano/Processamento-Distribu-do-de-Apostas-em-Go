@@ -194,17 +194,24 @@ func (r *WagerTransactionRepository) Update(ctx context.Context, tx pgx.Tx, t *t
 // FindPendingReferences busca transacoes PENDING_REFERENCE prontas para retry.
 func (r *WagerTransactionRepository) FindPendingReferences(ctx context.Context, limit int) ([]*transaction.WagerTransaction, error) {
 	const query = `
-		SELECT id, external_id, provider_id, idempotency_key, payload_hash,
-		       wallet_id, player_id, round_id, game_id,
-		       kind, amount_cents, currency,
-		       reference_external_id, reference_transaction_id,
-		       status, failure_code, attempts, next_retry_at,
-		       result_balance_cents, created_at, updated_at, processed_at
-		FROM wager_transactions
-		WHERE status = 'PENDING_REFERENCE'
-		  AND next_retry_at <= NOW()
-		ORDER BY next_retry_at ASC
-		LIMIT $1
+		UPDATE wager_transactions
+		SET next_retry_at = NOW() + INTERVAL '1 minute',
+		    updated_at = NOW()
+		WHERE id IN (
+			SELECT id
+			FROM wager_transactions
+			WHERE status = 'PENDING_REFERENCE'
+			  AND next_retry_at <= NOW()
+			ORDER BY next_retry_at ASC
+			LIMIT $1
+			FOR UPDATE SKIP LOCKED
+		)
+		RETURNING id, external_id, provider_id, idempotency_key, payload_hash,
+		          wallet_id, player_id, round_id, game_id,
+		          kind, amount_cents, currency,
+		          reference_external_id, reference_transaction_id,
+		          status, failure_code, attempts, next_retry_at,
+		          result_balance_cents, created_at, updated_at, processed_at
 	`
 	rows, err := r.pool.Query(ctx, query, limit)
 	if err != nil {

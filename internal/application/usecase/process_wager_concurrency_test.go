@@ -114,6 +114,7 @@ func TestProcessWagerUseCase_Concurrency(t *testing.T) {
 			mu.Lock()
 			defer mu.Unlock()
 			if err != nil {
+				t.Logf("Wager failed for idx %d: %v", idx, err)
 				errorCount++
 			} else {
 				successCount++
