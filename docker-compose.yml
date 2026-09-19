@@ -66,6 +66,27 @@ services:
     # A resiliencia de startup e garantida pelo retry com backoff exponencial
     # implementado em internal/presentation/http/middleware/auth.go (newProviderWithRetry).
 
+  # Servico de migracao efemero: aplica o schema no startup e encerra (exit 0).
+  # Usa a imagem oficial migrate/migrate — mesma lib golang-migrate do go.mod (v4.18.1).
+  # Schema identico ao codigo Go: zero divergencia de colunas ou constraints.
+  # Outros servicos que dependem do schema aguardam via service_completed_successfully.
+  migrate:
+    image: migrate/migrate:v4.18.1
+    container_name: betting_migrate
+    restart: "no"
+    networks:
+      - app-net
+    volumes:
+      - ./db/migrations:/migrations:ro
+    command: [
+      "-path=/migrations",
+      "-database=postgres://postgres:123@postgres:5432/betting_db?sslmode=disable",
+      "up"
+    ]
+    depends_on:
+      postgres:
+        condition: service_healthy
+
   # LocalStack 3.7: AWS SQS emulado.
   # Filas criadas via scripts/init-localstack.sh na inicializacao:
   #   wager-transactions.fifo, wager-transactions-dlq.fifo, wager-events.fifo
@@ -116,6 +137,8 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
       keycloak:
         condition: service_started
       localstack:
