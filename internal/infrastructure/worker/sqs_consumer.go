@@ -10,7 +10,6 @@ import (
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
-	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/service/sqs"
 	"github.com/aws/aws-sdk-go-v2/service/sqs/types"
 	"github.com/google/uuid"
@@ -45,20 +44,9 @@ func NewSQSConsumer(
 	uc *usecase.ProcessWagerUseCase,
 	inboxRepo port.InboxRepository,
 	runInTx port.RunInTxFunc,
+	client *sqs.Client,
 	log *zap.Logger,
 ) (*SQSConsumer, error) {
-	awsCfg, err := config.LoadDefaultConfig(context.Background(),
-		config.WithRegion(cfg.SQS.Region),
-	)
-	if err != nil {
-		return nil, err
-	}
-
-	client := sqs.NewFromConfig(awsCfg, func(o *sqs.Options) {
-		if cfg.SQS.EndpointURL != "" {
-			o.BaseEndpoint = aws.String(cfg.SQS.EndpointURL)
-		}
-	})
 
 	ctx, cancel := context.WithCancel(context.Background())
 

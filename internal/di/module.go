@@ -11,6 +11,7 @@ import (
 
 	"github.com/joaoluvisari/backend-challenge-go/internal/application/port"
 	"github.com/joaoluvisari/backend-challenge-go/internal/application/usecase"
+	"github.com/joaoluvisari/backend-challenge-go/internal/infrastructure/aws"
 	"github.com/joaoluvisari/backend-challenge-go/internal/infrastructure/config"
 	"github.com/joaoluvisari/backend-challenge-go/internal/infrastructure/postgres"
 	"github.com/joaoluvisari/backend-challenge-go/internal/infrastructure/worker"
@@ -89,6 +90,7 @@ var Module = fx.Options(
 		postgres.NewOutboxRepository,
 		postgres.NewInboxRepository,
 		postgres.RunInTx,
+		aws.NewSQSClient,
 	),
 
 	// 3. Mapeamento de interfaces concretas para os ports dos Use Cases

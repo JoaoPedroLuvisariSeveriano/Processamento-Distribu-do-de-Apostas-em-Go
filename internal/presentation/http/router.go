@@ -1,8 +1,6 @@
 package http
 
 import (
-	"net/http"
-
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 	"go.uber.org/zap"
@@ -17,6 +15,7 @@ func NewRouter(
 	oidcMiddleware *auth.OIDCMiddleware,
 	walletHandler *handler.WalletHandler,
 	wagerHandler *handler.WagerHandler,
+	healthHandler *handler.HealthHandler,
 ) *chi.Mux {
 	r := chi.NewRouter()
 
@@ -25,11 +24,10 @@ func NewRouter(
 	r.Use(middleware.Logger)
 	r.Use(middleware.Recoverer)
 
-	// Rotas pblicas (Health check)
-	r.Get("/health", func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusOK)
-		w.Write([]byte("OK"))
-	})
+	// Rotas publicas (Health check & Metrics)
+	r.Get("/health/live", healthHandler.HandleLive)
+	r.Get("/health/ready", healthHandler.HandleReady)
+	r.Get("/metrics", healthHandler.HandleMetrics)
 
 	// Rotas protegidas pelo Keycloak
 	r.Group(func(r chi.Router) {

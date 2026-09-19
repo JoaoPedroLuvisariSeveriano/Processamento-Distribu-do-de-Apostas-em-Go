@@ -6,7 +6,6 @@ import (
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
-	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/service/sqs"
 	"github.com/jackc/pgx/v5"
 	"go.uber.org/fx"
@@ -32,20 +31,9 @@ func NewOutboxPublisher(
 	cfg *appconfig.Config,
 	outboxRepo port.OutboxRepository,
 	runInTx port.RunInTxFunc,
+	client *sqs.Client,
 	log *zap.Logger,
 ) (*OutboxPublisher, error) {
-	awsCfg, err := config.LoadDefaultConfig(context.Background(),
-		config.WithRegion(cfg.SQS.Region),
-	)
-	if err != nil {
-		return nil, err
-	}
-
-	client := sqs.NewFromConfig(awsCfg, func(o *sqs.Options) {
-		if cfg.SQS.EndpointURL != "" {
-			o.BaseEndpoint = aws.String(cfg.SQS.EndpointURL)
-		}
-	})
 
 	ctx, cancel := context.WithCancel(context.Background())
 
