@@ -36,8 +36,13 @@ func NewRouter(
 		r.Use(oidcMiddleware.Handle)
 
 		r.Post("/wallets", walletHandler.HandleOpenWallet)
+		r.Post("/wallets/{walletId}/reconciliation", walletHandler.HandleReconcileWallet)
+		r.Get("/wallets/{walletId}", walletHandler.HandleGetWallet)
+		r.Get("/wallets/{walletId}/ledger", walletHandler.HandleGetWalletLedger)
+		
 		r.Post("/wagering/transactions", wagerHandler.HandleProcessWager)
-		// r.Get(...)
+		r.Get("/wagering/transactions/{transactionId}", wagerHandler.HandleGetTransaction)
+		r.Get("/providers/{providerId}/wagering/transactions/{externalTransactionId}", wagerHandler.HandleGetProviderTransaction)
 	})
 
 	return r

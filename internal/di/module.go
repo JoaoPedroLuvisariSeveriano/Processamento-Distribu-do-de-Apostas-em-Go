@@ -119,6 +119,8 @@ var Module = fx.Options(
 	fx.Provide(
 		usecase.NewOpenWalletUseCase,
 		usecase.NewProcessWagerUseCase,
+		usecase.NewReconcileWalletUseCase,
+		usecase.NewQueryUseCase,
 	),
 
 	// 5. Apresentacao (HTTP) e Middlewares

@@ -16,12 +16,14 @@ import (
 
 type WagerHandler struct {
 	processWagerUC *usecase.ProcessWagerUseCase
+	queryUC        *usecase.QueryUseCase
 	log            *zap.Logger
 }
 
-func NewWagerHandler(processWagerUC *usecase.ProcessWagerUseCase, log *zap.Logger) *WagerHandler {
+func NewWagerHandler(processWagerUC *usecase.ProcessWagerUseCase, queryUC *usecase.QueryUseCase, log *zap.Logger) *WagerHandler {
 	return &WagerHandler{
 		processWagerUC: processWagerUC,
+		queryUC:        queryUC,
 		log:            log,
 	}
 }
@@ -135,5 +137,88 @@ func (h *WagerHandler) HandleProcessWager(w http.ResponseWriter, r *http.Request
 		Balance:          balanceStr,
 		IdempotentReplay: out.IdempotentReplay,
 		FailureCode:      failCode,
+	})
+}
+
+func (h *WagerHandler) HandleGetTransaction(w http.ResponseWriter, r *http.Request) {
+	transactionIDStr := chi.URLParam(r, "transactionId")
+	transactionID, err := uuid.Parse(transactionIDStr)
+	if err != nil {
+		http.Error(w, "Invalid transactionId", http.StatusBadRequest)
+		return
+	}
+
+	t, err := h.queryUC.GetTransaction(r.Context(), transactionID)
+	if err != nil {
+		h.log.Error("Failed to get transaction", zap.Error(err))
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		return
+	}
+	if t == nil {
+		http.Error(w, "Transaction not found", http.StatusNotFound)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"transactionId": t.ID().String(),
+		"externalTransactionId": t.ExternalID(),
+		"providerId": t.ProviderID(),
+		"walletId": t.WalletID().String(),
+		"playerId": t.PlayerID().String(),
+		"roundId": t.RoundID(),
+		"gameId": t.GameID(),
+		"kind": t.Kind(),
+		"amount": t.Amount().String(),
+		"currency": t.Amount().Currency(),
+		"status": t.Status(),
+		"referenceExternalId": t.ReferenceExternalID(),
+		"createdAt": t.CreatedAt(),
+	})
+}
+
+func (h *WagerHandler) HandleGetProviderTransaction(w http.ResponseWriter, r *http.Request) {
+	providerID := chi.URLParam(r, "providerId")
+	externalID := chi.URLParam(r, "externalTransactionId")
+	
+	// Authentication context validation
+	authProviderID, err := middleware.GetProviderID(r.Context())
+	if err != nil {
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+	if authProviderID != providerID {
+		http.Error(w, "Forbidden: you can only view your own transactions", http.StatusForbidden)
+		return
+	}
+
+	t, err := h.queryUC.GetProviderTransaction(r.Context(), providerID, externalID)
+	if err != nil {
+		h.log.Error("Failed to get provider transaction", zap.Error(err))
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		return
+	}
+	if t == nil {
+		http.Error(w, "Transaction not found", http.StatusNotFound)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"transactionId": t.ID().String(),
+		"externalTransactionId": t.ExternalID(),
+		"providerId": t.ProviderID(),
+		"walletId": t.WalletID().String(),
+		"playerId": t.PlayerID().String(),
+		"roundId": t.RoundID(),
+		"gameId": t.GameID(),
+		"kind": t.Kind(),
+		"amount": t.Amount().String(),
+		"currency": t.Amount().Currency(),
+		"status": t.Status(),
+		"referenceExternalId": t.ReferenceExternalID(),
+		"createdAt": t.CreatedAt(),
 	})
 }

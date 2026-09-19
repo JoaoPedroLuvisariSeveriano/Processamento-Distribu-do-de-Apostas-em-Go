@@ -13,14 +13,23 @@ import (
 )
 
 type WalletHandler struct {
-	openWalletUC *usecase.OpenWalletUseCase
-	log          *zap.Logger
+	openWalletUC       *usecase.OpenWalletUseCase
+	reconcileWalletUC  *usecase.ReconcileWalletUseCase
+	queryUC            *usecase.QueryUseCase
+	log                *zap.Logger
 }
 
-func NewWalletHandler(openWalletUC *usecase.OpenWalletUseCase, log *zap.Logger) *WalletHandler {
+func NewWalletHandler(
+	openWalletUC *usecase.OpenWalletUseCase,
+	reconcileWalletUC *usecase.ReconcileWalletUseCase,
+	queryUC *usecase.QueryUseCase,
+	log *zap.Logger,
+) *WalletHandler {
 	return &WalletHandler{
-		openWalletUC: openWalletUC,
-		log:          log,
+		openWalletUC:      openWalletUC,
+		reconcileWalletUC: reconcileWalletUC,
+		queryUC:           queryUC,
+		log:               log,
 	}
 }
 
@@ -93,5 +102,109 @@ func (h *WalletHandler) HandleOpenWallet(w http.ResponseWriter, r *http.Request)
 		Balance:  out.Wallet.Balance().String(),
 		Currency: out.Wallet.Currency(),
 		Created:  out.Created,
+	})
+}
+
+func (h *WalletHandler) HandleReconcileWallet(w http.ResponseWriter, r *http.Request) {
+	walletIDStr := chi.URLParam(r, "walletId")
+	walletID, err := uuid.Parse(walletIDStr)
+	if err != nil {
+		http.Error(w, "Invalid walletId", http.StatusBadRequest)
+		return
+	}
+
+	out, err := h.reconcileWalletUC.Execute(r.Context(), walletID)
+	if err != nil {
+		h.log.Error("Failed to reconcile wallet", zap.Error(err))
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"walletId": out.WalletID.String(),
+		"currentBalance": out.CurrentBalance.String(),
+		"ledgerCredits": out.LedgerCredits.String(),
+		"ledgerDebits": out.LedgerDebits.String(),
+		"reconstructedBalance": out.Reconstructed.String(),
+		"isConsistent": out.IsConsistent,
+	})
+}
+
+func (h *WalletHandler) HandleGetWallet(w http.ResponseWriter, r *http.Request) {
+	walletIDStr := chi.URLParam(r, "walletId")
+	walletID, err := uuid.Parse(walletIDStr)
+	if err != nil {
+		http.Error(w, "Invalid walletId", http.StatusBadRequest)
+		return
+	}
+
+	wallet, err := h.queryUC.GetWallet(r.Context(), walletID)
+	if err != nil {
+		h.log.Error("Failed to get wallet", zap.Error(err))
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"walletId": wallet.ID().String(),
+		"balance": wallet.Balance().String(),
+		"currency": wallet.Currency(),
+	})
+}
+
+func (h *WalletHandler) HandleGetWalletLedger(w http.ResponseWriter, r *http.Request) {
+	walletIDStr := chi.URLParam(r, "walletId")
+	walletID, err := uuid.Parse(walletIDStr)
+	if err != nil {
+		http.Error(w, "Invalid walletId", http.StatusBadRequest)
+		return
+	}
+
+	var afterID *uuid.UUID
+	cursorStr := r.URL.Query().Get("cursor")
+	if cursorStr != "" {
+		id, err := uuid.Parse(cursorStr)
+		if err == nil {
+			afterID = &id
+		}
+	}
+
+	limit := 50 // Default limit
+
+	entries, err := h.queryUC.GetWalletLedger(r.Context(), walletID, afterID, limit)
+	if err != nil {
+		h.log.Error("Failed to get wallet ledger", zap.Error(err))
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		return
+	}
+
+	var responseEntries []map[string]interface{}
+	for _, e := range entries {
+		responseEntries = append(responseEntries, map[string]interface{}{
+			"id": e.ID().String(),
+			"transactionId": e.TransactionID().String(),
+			"direction": e.Direction(),
+			"amount": e.Amount().String(),
+			"balanceBefore": e.BalanceBefore().String(),
+			"balanceAfter": e.BalanceAfter().String(),
+			"createdAt": e.CreatedAt(),
+		})
+	}
+
+	var nextCursor *string
+	if len(entries) > 0 {
+		lastID := entries[len(entries)-1].ID().String()
+		nextCursor = &lastID
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"entries": responseEntries,
+		"nextCursor": nextCursor,
 	})
 }
