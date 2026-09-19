@@ -62,14 +62,9 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
-    healthcheck:
-      # Valida que o realm betting-realm ja foi importado — nao apenas que o processo esta vivo.
-      # Isso e critico: o Keycloak pode estar rodando mas o realm ainda nao ter sido importado.
-      test: ["CMD-SHELL", "curl -sf http://localhost:8080/realms/betting-realm || exit 1"]
-      interval: 15s
-      timeout: 10s
-      retries: 20
-      start_period: 120s
+    # Sem healthcheck: a imagem Keycloak/Quarkus nao possui curl.
+    # A resiliencia de startup e garantida pelo retry com backoff exponencial
+    # implementado em internal/presentation/http/middleware/auth.go (newProviderWithRetry).
 
   # LocalStack 3.7: AWS SQS emulado.
   # Filas criadas via scripts/init-localstack.sh na inicializacao:
@@ -122,6 +117,6 @@ services:
       postgres:
         condition: service_healthy
       keycloak:
-        condition: service_healthy
+        condition: service_started
       localstack:
         condition: service_healthy
