@@ -74,7 +74,10 @@ CREATE TABLE IF NOT EXISTS wager_transactions (
 
     -- idempotency_key: valor do header Idempotency-Key recebido pelo servidor.
     -- Formato esperado: "{providerId}:{externalTransactionId}"
-    idempotency_key TEXT,
+    -- UNIQUE permite multiplos NULL (OPENING nao tem idempotency_key), pois
+    -- o PostgreSQL trata NULL como distinto em constraints UNIQUE.
+    -- Necessario para ON CONFLICT (idempotency_key) DO NOTHING no TryCreate.
+    idempotency_key TEXT UNIQUE,
 
     -- payload_hash: SHA-256 do JSON canonico dos campos de negocio.
     -- Usado para detectar conflito de idempotencia (mesma key, payload diferente).
@@ -135,10 +138,9 @@ CREATE TABLE IF NOT EXISTS wager_transactions (
         CHECK (kind IN ('OPENING', 'BET', 'WIN', 'LOSS', 'REFUND', 'ROLLBACK'))
 );
 
--- Partial UNIQUE index para idempotency_key (NULL para OPENING — nao afetado).
--- Partial indexes ignoram linhas onde a condicao WHERE e falsa.
--- Isso permite multiplos NULLs sem violar unicidade.
-CREATE UNIQUE INDEX IF NOT EXISTS uq_wager_transactions_idempotency_key
+-- Indice de apoio para buscas por idempotency_key (a unicidade ja e garantida
+-- pela UNIQUE constraint inline na coluna — ver definicao da tabela acima).
+CREATE INDEX IF NOT EXISTS idx_wager_transactions_idempotency_key
     ON wager_transactions (idempotency_key)
     WHERE idempotency_key IS NOT NULL;
 
