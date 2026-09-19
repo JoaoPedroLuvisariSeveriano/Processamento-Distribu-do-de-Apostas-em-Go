@@ -2,7 +2,7 @@
 
 Este repositório contém a solução completa para o Desafio Backend de Processamento Distribuído de Apostas. A aplicação foi construída em **Go 1.23** focada em resiliência, escalabilidade e altíssima segurança financeira.
 
-## 🚀 Como Executar o Projeto
+##  Como Executar o Projeto
 
 O projeto utiliza o **Docker Compose** para orquestrar todas as dependências locais (PostgreSQL, Keycloak e LocalStack para SQS). Não é necessário ter Go instalado na máquina host para subir a aplicação.
 
@@ -32,7 +32,7 @@ curl -X POST http://localhost:8080/realms/betting-realm/protocol/openid-connect/
 
 ---
 
-## 🧪 Como Executar os Testes
+##  Como Executar os Testes
 
 Os testes garantem a integridade atômica da aplicação e a ausência de *Race Conditions*, validando concorrência agressiva de até 50 transações simultâneas na mesma carteira.
 
@@ -64,10 +64,10 @@ docker run --rm -v "${PWD}:/app" -w /app golang:1.23-alpine go vet ./...
 
 ---
 
-## 🏗️ Documentação da Arquitetura
+##  Documentação da Arquitetura
 Consulte o arquivo [ARCHITECTURE.md](ARCHITECTURE.md) na raiz do repositório para mergulhar nas decisões de design (Domain-Driven Design), modelagem do tipo monetário blindado (`Money` object), garantias de Idempotência e estratégias de *Pessimistic Locking* de banco.
 
-## 📦 Estrutura de Diretórios
+##  Estrutura de Diretórios
 - `cmd/server/`: Ponto de entrada (Main) e injeção (Fx).
 - `internal/application/`: Portas (interfaces) e Casos de Uso.
 - `internal/domain/`: Aggregates, Value Objects (`Money`) e regras brutas de negócio.
